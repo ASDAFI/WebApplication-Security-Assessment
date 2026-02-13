@@ -1,0 +1,25 @@
+
+services:
+  hacking-station:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+
+    container_name: hacking-box
+
+    ports:
+      - "3389:3389"
+
+    shm_size: '4gb'
+
+    volumes:
+      - ./workspace:/home/hacker/workspace
+
+    restart: unless-stopped
+
+  juice-shop:
+    image: bkimminich/juice-shop:v19.1.1
+    container_name: juice-shop-target
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
