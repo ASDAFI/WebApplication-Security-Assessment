@@ -47,10 +47,7 @@ RUN add-apt-repository ppa:mozillateam/ppa -y && \
     apt-get update && apt-get install -y firefox
 
 # Install Google Chrome
-RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    apt-get update && \
-    (apt-get install -y ./google-chrome-stable_current_amd64.deb || apt-get install -f -y) && \
-    rm google-chrome-stable_current_amd64.deb
+RUN apt install chromium-browser
 
 # Install Selenium and WebDriver Manager
 RUN pip3 install selenium webdriver-manager
