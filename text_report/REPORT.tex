@@ -1,0 +1,588 @@
+
+\def \Subject {آزمون امنیتی نرم افزار \lr{OWASP Juice Shop}}
+\def \Course {طراحی نرم افزار امن - مباحثی در علوم کامپیوتر}
+
+\begin{center}
+\vspace{.4cm}
+{\bf {\Large \Subject}}\\
+\vspace{16pt}
+{\bf \Large \Course}
+\end{center}
+\clearpage
+
+%\huge{\Subject}\\[1.5 cm]
+\section{مقدمه}
+هدف اصلی این مستند، ارزیابی امنیتی و کشف آسیب‌پذیری‌های نرم‌افزار \lr{OWASP Juice Shop} است. این نرم‌افزار یک سامانه فروشگاهی متن‌باز است که به طور خاص جهت تمرین و آموزش مباحث امنیت وب طراحی شده است.
+
+در این پژوهش، مسیر تحلیل به شرح زیر طی خواهد شد:
+\begin{enumerate}
+    \item راه‌اندازی زیرساخت امن و ایزوله برای تحلیل.
+    \item بررسی قابلیت‌ها و منطق کسب‌وکار (\lr{Business Logic}) سامانه.
+    \item مدل‌سازی تهدیدات و شناسایی اهداف بالقوه مهاجم.
+    \item اجرای آزمون‌های امنیتی و نفوذ.
+    \item ارائه راهکارهای امنیتی و اقدامات متقابل.
+\end{enumerate}
+ابزار محوری مورد استفاده جهت انجام این ارزیابی‌ها، نرم‌افزار \lr{BurpSuite} می‌باشد.
+
+\section{راه‌اندازی محیط آزمایشگاه}
+جهت پیاده‌سازی محیط شبیه‌سازی (شامل سیستم کاربر، مهاجم و سرور هدف) به صورت امن و استاندارد، کلیه فایل‌های پیکربندی و اسکریپت‌های لازم در مخزن \lr{GitHub} زیر قرار داده شده است:
+
+\lr{\url{https://github.com/ASDAFI/WebApplication-Security-Assessment.git}}
+
+\subsection{نسخه‌های مورد استفاده}
+برای مدیریت سرویس‌ها و ایجاد محیط‌های ایزوله از پلتفرم \lr{Docker} استفاده شده است. جهت تضمین صحت و تکرارپذیری آزمایش‌ها، نسخه‌های زیر به‌کار گرفته شده‌اند:
+\begin{itemize}
+    \item سامانه هدف: \lr{OWASP Juice Shop v19.1.1}
+    \item ابزار تحلیل: \lr{BurpSuite Professional 2024.1.1.4}
+\end{itemize}
+
+\subsection{معماری آزمایشگاه تحلیل}
+محیط تحلیل یک \lr{Container} سفارشی‌سازی شده است که علاوه بر ابزارهای امنیتی، به سرویس \lr{Remote Desktop Protocol (RDP)} مجهز شده است تا رابط گرافیکی (\lr{UI}) مناسبی را در اختیار تحلیل‌گر قرار دهد.
+هدف اصلی از این معماری، ایجاد یک محیط کاملاً ایزوله است تا فعالیت‌های تست نفوذ هیچ‌گونه تثیری بر سیستم‌عامل میزبان نداشته باشد.
+
+\subsection{پیکربندی سامانه \lr{OWASP Juice Shop}}
+برای راه‌اندازی سامانه هدف، از تصویر (\lr{Image}) رسمی موجود در \lr{Docker Registry} به آدرس زیر استفاده شده است:
+
+\lr{\url{https://hub.docker.com/r/bkimminich/juice-shop}}
+
+\subsection{شبکه‌سازی ایزوله}
+مدیریت شبکه و ارتباط بین کانتینرها توسط ابزار \lr{Docker Compose} انجام می‌شود. ویژگی‌های کلیدی این شبکه عبارتند از:
+\begin{itemize}
+    \item \textbf{ارتباط داخلی:} کانتینرها در یک شبکه مشترک قرار دارند و سامانه \lr{OWASP Juice Shop} از طریق نام دامنه \lr{\url{http://juice-shop}} (با استفاده از \lr{DNS} داخلی داکر) در دسترس سایر ماشین‌ها قرار دارد.
+    \item \textbf{ایزولاسیون اینترنت:} این شبکه به گونه‌ای پیکربندی شده است که فاقد دسترسی به اینترنت خارجی باشد، که این امر امنیت محیط آزمایشگاه را تضمین می‌کند.
+\end{itemize}
+
+\subsection{تعدد ماشین‌ها در شبکه}
+جهت شبیه‌سازی دقیق حملات لایه شبکه (نظیر \lr{ARP Spoofing} و \lr{MITM})، نیاز به تفکیک ماشین مهاجم و قربانی است. این نیازمندی با تعریف \lr{Instance}های مجزا در فایل \lr{docker-compose} محقق شده است؛ به طوری که یک کانتینر نقش کاربر عادی و کانتینر دیگر نقش مهاجم را در شبکه ایفا می‌کند.
+
+%\centerline{\rule{13cm}{0.4pt}}
+\setcounter{equation}{0}
+
+\newpage
+
+
+\section{\lr{OWASP Juice Shop}}
+این سامانه در ظاهر یک فروشگاه آنلاین خرید آب‌میوه است.
+
+\subsection{قابلیت‌های کاربران}
+در این بخش، سطح دسترسی و قابلیت‌های کاربران بررسی می‌شود. هدف از این بخش، شناخت عمومی سطح حمله است و در بخش‌های بعدی به تحلیل عمیق‌تر پرداخته خواهد شد.
+
+\subsubsection{کاربر مهمان (بدون احراز هویت)}
+
+\begin{itemize}
+
+\item 
+مشاهده لیست محصولات، قیمت‌ها و نظرات ثبت شده برای هر محصول در صفحه اصلی.
+
+\item
+امکان ثبت بازخورد (\lr{Feedback}) به صورت ناشناس.
+
+\item
+مشاهده اطلاعات توسعه‌دهندگان و تصاویر مرتبط در صفحه \lr{About US}.
+
+\item
+مشاهده تصاویر بارگذاری شده توسط سایر کاربران در بخش \lr{PhotoWall}.
+
+\item 
+امکان ورود به حساب کاربری (در صورت داشتن حساب) و یا ورود از طریق حساب گوگل (\lr{OAuth}).
+
+\item
+قابلیت ثبت‌نام و ایجاد حساب کاربری جدید.
+
+\end{itemize}
+
+\subsubsection{کاربر احراز هویت شده (لاگین شده)}
+کاربر مهمان پس از ورود موفق به حساب کاربری، به این سطح دسترسی ارتقاء می‌یابد و قابلیت‌های زیر را دارا خواهد بود:
+
+\begin{itemize}
+
+\item
+افزودن کالا به سبد خرید به تعداد دلخواه.
+
+\item
+ثبت نظر برای کالاها (حتی بدون خرید محصول).
+
+\item
+ارسال بازخورد (\lr{Feedback}) با نام کاربری مشخص.
+
+\item
+ثبت شکایت (\lr{Complaint}) و بارگذاری مدارک مربوطه.
+
+\item
+استفاده از سیستم پشتیبانی آنلاین در بخش \lr{Support Chat}.
+
+\item
+اشتراک‌گذاری تصویر و متن (\lr{Caption}) در بخش \lr{PhotoWall}.
+
+\item 
+امکان ارتقای حساب کاربری به \lr{Deluxe Membership} جهت دریافت تخفیف‌ها و ارسال سریع‌تر.
+
+\item
+\textbf{مدیریت حساب کاربری (\lr{Account}):}
+    \begin{itemize}
+        \item تغییر تصویر پروفایل و نام کاربری.
+        \item مشاهده تاریخچه سفارش‌ها (\lr{Order History}) و ثبت نظر برای سفارش‌های تکمیل شده.
+        \item درخواست بازیافت جعبه‌ها از طریق بخش \lr{Recycle}.
+        \item مدیریت آدرس‌های ذخیره شده در \lr{My saved addresses} (افزودن، حذف و ویرایش).
+        \item مدیریت روش‌های پرداخت در \lr{My Payment Options} (افزودن یا حذف کارت بانکی).
+    \end{itemize}
+
+\item
+خروج از حساب کاربری (\lr{Logout}).
+
+\item
+درخواست حذف کامل اطلاعات کاربری از طریق مسیر \lr{Privacy and Security > Data Erasure Request}.
+
+\item 
+فعال‌سازی احراز هویت دو مرحله‌ای (\lr{2FA}) با استفاده از \lr{Google Authenticator} در بخش تنظیمات امنیتی.
+
+\item
+مشاهده آخرین \lr{IP} وارد شده به حساب کاربری.
+
+\end{itemize}
+
+
+\subsection{اهداف و انگیزه‌های مهاجم}
+
+\subsubsection{تخریب و اختلال در سرویس}
+هدف مهاجم می‌تواند آسیب به تجربه کاربری و شهرت سامانه باشد. این حملات شامل موارد زیر است:
+\begin{itemize}
+    \item دستکاری (\lr{Modify}) یا حذف داده‌های موجود در سایت.
+    \item ارسال هرزنامه (\lr{Spam}) در بخش نظرات و بازخوردها.
+    \item تغییر قیمت محصولات یا تغییر محتوای نظرات کاربران.
+    \item بارگذاری محتوای نامناسب یا مستهجن که می‌تواند منجر به چالش‌های قانونی برای صاحب کسب‌وکار شود.
+\end{itemize}
+
+\subsubsection{کلاهبرداری مالی}
+با توجه به ماهیت فروشگاهی سامانه، یکی از اهداف اصلی مهاجم خرید کالا با قیمت کمتر، رایگان و یا استفاده از حساب سایر کاربران برای پرداخت است.
+
+\subsubsection{سرقت اطلاعات حساس}
+استخراج اطلاعاتی نظیر آدرس‌های سکونت، شماره تلفن و اطلاعات کارت‌های بانکی کاربران. این داده‌ها ارزش بالایی برای حملات مهندسی اجتماعی و فیشینگ دارند و افشای آن‌ها می‌تواند خطرات جانی و مالی برای کاربران به همراه داشته باشد.
+
+\subsection{سطح دسترسی و پیش‌فرض‌های حمله}
+فرض بر این است که زیرساخت پایه 
+(\lr{Docker Container}) امن است (بحث \lr{Trusted Computing Base (TCB)}) و تمرکز صرفاً بر آسیب‌پذیری‌های لایه نرم‌افزار (\lr{Application Layer}) می‌باشد.
+
+همچنین جهت شبیه‌سازی یک سناریوی واقعی (\lr{Enterprise})، رویکرد آزمون جعبه سیاه (\lr{Black-box}) انتخاب شده است؛ بدین معنا که فرض می‌شود مهاجم دسترسی اولیه به کد منبع (\lr{Source Code}) ندارد. با این حال، در بخش ارائه راهکارها، به کد منبع ارجاع داده خواهد شد.
+
+\subsubsection{دسترسی به \lr{API}ها}
+تمام کاربران (حتی بدون ورود) به مجموعه‌ای از \lr{API}های عمومی دسترسی دارند که می‌تواند نقطه ورودی برای حملات باشد.
+
+\subsubsection{هم‌بندی شبکه (\lr{Network Topology})}
+قرارگیری مهاجم در یک شبکه محلی (\lr{LAN}) مشترک با قربانی، امکان پیاده‌سازی حملاتی نظیر \lr{Man-In-The-Middle} را فراهم می‌کند.
+
+\subsubsection{پورت‌های باز}
+بررسی پورت‌های باز جهت شناسایی سرویس‌ها و تکنولوژی‌های مورد استفاده ضروری است. سرویس‌هایی که به اشتباه در معرض اینترنت (\lr{Exposed}) قرار گرفته‌اند، می‌توانند حفره امنیتی ایجاد کنند.
+
+در این سناریو، تنها پورت \lr{3000} جهت دسترسی به سامانه باز است و سایر پورت‌ها مسدود می‌باشند.
+
+\newpage
+
+
+\section{آزمودن API ها}
+برای این تحلیل 
+scope 
+مربوط به
+BurpSuite
+را به 
+دامنه مروبط به سرویس محدود میکنیم تا از نبض ها و سایر درخواست ها حین تحلیل در امان بمانیم.
+
+\color{red}{مواردی که نیاز به تحلیل عمقی تر دارند و جالب هستند به رنگ قرمز در میآیند.}
+
+\color{black}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{assets/scope.png} 
+    \caption{تنظیم Scope}
+\end{figure}
+
+سپس proxy مربوط به BurpSuite را در مرورگر تنظیم میکنیم تا به عنوان
+middleware
+قرار بگیرد و درخواست ها را مشاهده کنیم.
+برنامه ای برای Drop کردن درخواست ها یا کنترل دستی نداریم و فعلا ناظر هستیم.
+
+\subsection{ثبت نظرات}
+ابتدا این آسیب پذیری را در صفحه customerFeedback
+مشاهده خواهیم کرد. هنگام فراخوانی، مشاهده میشود که در API مربوط
+به captcha
+پاسخ آن نیز گنجانده شده است.
+
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{assets/feedback_captcha.png} 
+    \caption{درخواست captcha در صفحه Feedback}
+\end{figure}
+
+ثبت درخواست برای نظر جدید بدین شکل است.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{assets/feedback_req.png} 
+    \caption{ثبت درخواست برای نظر جدید}
+\end{figure}
+
+\newpage
+موارد مورد توجه برای بررسی:
+
+برای این بررسی، درخواست ها به تب Repeater .برده میشوند
+
+
+\begin{itemize}
+        \item آیا می‌توان با همان captchaId مجدد نظر ثبت کرد و captcha دیگری نگرفت؟
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/out_of_5.png} 
+            \caption{درخواست با همان captchaId و rating منفی}
+        \end{figure}
+
+        \item آیا می‌توان در فیلد rating عددی خارج از بازه ۱ الی ۵ انتخاب کرد؟
+
+        تصویر مورد قبل به این نیز پاسخ میدهد.
+
+        
+        \item اگر rating ای ثبت کنیم که overflow کند چه می‌شود؟
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/long_score.png} 
+            \caption{درخواست با rating ای که احتمالا overflow رخ دهد}
+        \end{figure}
+
+        \newpage
+
+        \item آیا می‌توان با نام دیگری نظر داد؟ زیرا به نظر نام فرد در پرانتز درون خود نظر واقع است.
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/other_person_feedback.png} 
+            \caption{نظر دهی جای فرد دیگر}
+        \end{figure}
+
+        همچنین این نظر را در صفحه AboutUs
+        میتوان یافت.
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/bijani_feedback.png} 
+            \caption{نظر دهی جای فرد دیگر با عدد خارج از بازه}
+        \end{figure}
+
+        \item این نظرات در چه صفحه ای نمایش داده میشوند و front-end برای آن چه کار میکند؟
+        به طور مثال اگر ۱ میلیون ستاره نمایش داده شود - ممکن است صفحه بسیار آسیب ببیند یا حتی هنگ کند.
+
+        در عکس قبلی پاسخ به این سوال واقع است.
+        همانطور که مشاهده میشود برای اعداد منفی یا مثبت بزرگ تر از ۵ undefined ثبت میشود.
+
+        \newpage
+        
+        \item خارج از front-end
+        این نظرات از دیتابیس و سپس از سمت سرور چگونه بازخوانی شده اند؟
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/req.png} 
+            \caption{نظرات فراخوانی شده از سمت سرور}
+        \end{figure}
+
+        پاسخ ها در صفحه AboutUs بدین شکل فراخوانی میشوند.
+        درست است درون درخواست ما جای anonymous آدرس فرد دیگری را جا زدیم، اما همچنان userId مربوط null است اما برای کاربران واقعی اینطور نیست.
+                
+        \color{red}
+                همچنین اعداد rating به طور صحیحی بازیابی شده اند.
+        اما rating های اعداد بسیار بزرگ فراخوانی نشده اند. به نظر که احتمالا از سمت سرور خطایی حین ذخیره سازی رخ داده است.
+
+        
+        \color{black}
+
+        \item
+        وجود RateLimiter حس نمیگردد و ممکن است حملات DoS رخ دهد.
+        میتواند دیتابیس (دیسک) را پر کند و به عملکرد های داخلی نیز آسیب بزند.
+        
+    \end{itemize}
+
+
+
+
+
+\subsubsection{چکیده}
+
+\begin{itemize}
+        \item امکان ثبت نظر جای فرد دیگر ( نمایان در UI ) وجود دارد.
+        \item امکان ثبت پیاپی بدون درگیر شدن با چالش captcha وجود دارد.
+        \item امکان Rate دادن با عدد خارج از بازه ۱ تا ۵ وجود دارد اما Front-End توانایی بازنمایی آن را ندارد.
+        \item عدم وجود محدود کننده نرخ میتواند حملات DoS با آسیب های جدی تر را در پی داشته باشد.
+    \end{itemize}
+
+
+\subsection{نهایی کردن خرید}
+حین نهایی کردن خرید، درخواست POST ای مشاهده میشود که میتوان آن را چند بار ثبت کرد و یک سفارش را چند بار در سبد قرار داد.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{order_submit.png} 
+            \caption{ثبت سفارش تکراری}
+        \end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{orders.png} 
+    \caption{صفحه سفارش ها}
+\end{figure}
+
+\subsection{راهکار های امنیتی}
+
+\begin{itemize}
+        \item برای فیلد ها سمت سرور باید verifier ایجاد شود.
+        \item باید از rate limiter استفاده شود.
+        \item درخواست هایی که یکبار ثبت میشوند باید وضعیتشان سمت دیتابیس آپدیت شود و قبل از آپدیت بررسی شوند که قبلا تایید شده اند یا خیر.
+        \item اشتباهی نظیر ارسال پاسخ captcha به سمت کاربر نباید رخ دهد.
+        \item captcha باید زماندار و یکبار مصرف باشد. 
+        
+    \end{itemize}
+
+\section{حملات SQLi}
+
+\subsection{درز ورود}
+ آیا آسیب پذیری SQLi در صفحه ورود وجود دارد؟
+    برای آزمایش این مورد، از ' به عنوان نام کاربری در api مربوط
+    به login استفاده میکنیم.
+
+    \begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/sqli1.png} 
+            \caption{خروجی API مربوط به ورود به ازای نام کاربری '}
+    \end{figure}
+
+    این مورد آسیب پذیری را نشان میدهد و نام جدول مربوط و فیلد را مشخص میکند.
+
+    همچنین نوع DBMS استفاده شده، SQLit است.
+  
+\subsection{بدست آوردن اطلاعات}
+\subsubsection{احراز هویت}
+حال پس از یافتن درز ورود، اولین ایده تلاش برای ورود است.
+از آنجایی که query مربوط به Login را مشاهده کردیم به سادگی با پر کردن دو فیلد نام کاربری و رمز عبور همانند تصویر زیر، توکن احراز هویت را دریافت میکنیم.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/sqli_auth.png} 
+            \caption{احراز هویت به کمک SQLi}
+        \end{figure}
+
+
+\subsubsection{جدول Users}
+
+به کمک ایده مقابل ابتدا درخواستی که خروجی مد نظر را در بر دارد میزنیم.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/users_tbl.png} 
+            \caption{تلاش برای یافتن اطلاعات همه کاربران}
+        \end{figure}
+
+خروجی مد نظر \lr{jwt encode} شده است و نیاز به بازگردانی دارد.
+پس از بازگردانی بدین شکل خواهد بود.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/users_tbl_decoded.png} 
+            \caption{اطلاعات رمزگشایی شده کاربران}
+        \end{figure}
+
+\newpage
+
+\subsubsection{جداول}
+به کمک کوئری زیر در فیلد نام کاربری میتوان به جداول دست پیدا کرد.
+
+\begin{LTR}
+\begin{verbatim}
+' UNION SELECT 1, group_concat(tbl_name), 3, 4, 5, 6, 7, 8, 9 FROM sqlite_master --
+\end{verbatim}
+\end{LTR}
+
+زیر درون sqlite تمام جداول در sqlite_master قرار دارند.
+
+چالشی که وجود دارد تعداد ستون های جدول Users است. این چالش را با 
+زیرا عملیات Union که دو جدول را با هم اجتماع میگیرد، نیاز به دو جدول با تعداد ستون های برابر دارد.
+
+آزمون کوئری
+زیر را از ۱ شروع میکنیم و جلو میرویم. آخرین جایی که به ارور های سمت دیتابیس بر نخوردیم، تعداد ستون های جدول است.
+
+\begin{LTR}
+\begin{verbatim}
+' Order by 1 --
+\end{verbatim}
+\end{LTR}
+
+بنا بر این آزمایش، تعداد ستون ها ۱۳ است.
+
+پس از انجام این کار خروجی بدین شکل است.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/fail1.png} 
+            \caption{دریافت نام تمام جداول}
+        \end{figure}
+
+
+علت شکست بالا چیست؟ بدین دلیل است که ستون مربوط به otpSecret توسط ما مقدار دهی شده است و کاربر فرضی با این مقدار در آن وجود دارد. به نظر مقدار پیشفرض خالی برای آن "" است. پس آن را در شماره ستون ۹ ام ( ستون مربوط به آن ) لحاظ میکنیم.
+
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/totp_fix.png} 
+            \caption{فیکس ستون totp برای استخراج همه جداول}
+        \end{figure}
+
+پس از رمزگشایی خروجی به نام جداول میرسیم.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/tables_names.png} 
+            \caption{نام جداول concat شده در یکی از ستون های مربوط به Users}
+        \end{figure}
+
+بنا به این ترتیب نام جداول عبارت است از
+
+\begin{LTR}
+\begin{verbatim}
+Users,Users,sqlite_sequence,Addresses,
+Baskets,Products,BasketItems,BasketItems,
+Captchas,Cards,Challenges,Complaints,Deliveries,
+Feedbacks,Hints,ImageCaptchas,Memories,PrivacyRequests,
+Quantities,Recycles,SecurityQuestions,SecurityAnswers,
+SecurityAnswers,Wallets
+\end{verbatim}
+\end{LTR}
+
+\subsection{بدست آوردن Schemaی جداول یافت شده}
+یکی از موارد یافتن Schema یا Data-Definition-Layer که همان DDL است میباشد.
+DDL اطلاعات دقیق تر نظیر ارتباطات را به ما ارائه نیز میدهد.
+
+به کمک ایده زیر DDL مربوط به جدول Wallets را استخراج میکنیم.
+
+
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/wallets_schema.png} 
+            \caption{SQLi برای یافتن DDL}
+        \end{figure}
+
+پس از رمزگشایی خروجی به نام جداول میرسیم.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/wallets_schema_decoded.png} 
+            \caption{DDL جدول Wallets}
+        \end{figure}
+
+بدین ترتیب DDL این جدول عبارت است از:
+
+\begin{LTR}
+\begin{verbatim}
+CREATE TABLE `Wallets` (
+    `UserId` INTEGER REFERENCES `Users` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE, 
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `balance` INTEGER DEFAULT 0,
+    `createdAt` DATETIME NOT NULL,
+    `updatedAt` DATETIME NOT NULL
+)
+\end{verbatim}
+\end{LTR}
+
+\subsection{استخراج داده از جدول}
+برای استخراج داده های مورد نظر میتوان از ایده زیر کمک گرفت.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/extract_val.png} 
+            \caption{استخراج مقدار از جداول}
+        \end{figure}
+
+پس از رمزگشایی خروجی به نام جداول میرسیم.
+این خروجی مقدار عدد درون کیف پول هر فرد را متناظر با شناسه آن در خود دارد.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/extract_val_decoded.png} 
+            \caption{مقدایر پول درون کیف پول افراد}
+        \end{figure}
+
+\subsection{افزودن مبلغ به کیف پول}
+پس از دستور Update در این محل، تغییری در مقدار موجود در کیف مشاهده نمیشود.
+به نظر دلیل آن این است که دستور فقط query را اجرا میکند و چیزی را سمت دیتابیس commit نمیکند.
+
+\subsection{درز افزودن آدرس}
+پس از ورود به حساب ( اینجا پس از نفوذ admin )
+درز دیگری باری modification
+یافت میشود که آن افزودن آدرس است.
+
+پس از آزمایش ها برای raise کردن error و تماشای SQLi
+موردی یافت نمیشود که این آسیب پذیری را نشان دهد.
+
+همچنین به نظر میرسد validation شماره موبایل سمت سرور تعبیه شده است که حس طراحی امن تر اینجا را میدهد.
+
+\subsection{راهکار های امنیتی}
+\begin{itemize}
+    \item خطاهای سمت دیتابیس نباید به صورت خام برگردانده شوند. خطا ها باید در سمت سرور لاگ شوند و صرفا در دیتابیس شناسه مربوط به خطا مشخص باشد.
+    \item 
+    از قابلیت کامپایل و بعد جا گذاری query مربوط به DBMS ها باید استفاده کرد.
+    در این قابلیت ابتدا کوئری به \lr{logical} یا \lr{physical plan}
+    تبدیل خواهد شد و سپس پارامتر ها در آن جای خواهد گرفت. این بهترین شیوه مقابله است.
+    \item
+    دسترسی Read/Write را به نسبت کوئری های مختلف محدود کنیم.
+    
+\end{itemize}
+
+\newpage
+
+
+\section{حملات XSS}
+
+یکی از فیلد هایی که به نظر آسیب پذیر میرسد فیلد جستجوی سایت است.
+
+\begin{figure}[H]
+            \centering
+            \includegraphics[width=0.8\textwidth]{assets/sample_xss.png} 
+            \caption{نمونه حمله xss}
+        \end{figure}
+
+
+
+\section{حمله \lr{ARP Spoofing}}
+به دلیل HTTP بودن درخواست ها،
+آن ها به صورت \lr{plain text}
+مشخص هستند و مقادیر به راحتی در شبکه محلی مشخص است.
+
+به راحتی میتوان نام کاربری افراد و درخواست های افراد را مشاهده کرد، توکن های مربوط به احراز هویت را برداشت و از آن استفاده کرد.
+
+به کمک قابلیت Interpret برنامه Burpsute میتوان این کار را به سادگی انجام داد.
+
+\section{نحوه مشارکت اعضای تیم}
+
+کد های LaTEX مربوط به این ارائه را میتوانید از مخزن گیتهاب آن به آدرس
+
+\lr{\url{https://github.com/ASDAFI/WebApplication-Security-Assessment.git}}
+
+دریابید.
+
+\membername{علی صدفی}
+\begin{itemize}[noitemsep, topsep=0pt, label=\textcolor{gray}{$\bullet$}]
+    \item راه‌اندازی آزمایشگاه و زیرساخت‌های لازم برای تحلیل
+\end{itemize}
+
+\membername{نرگس حسینی}
+\begin{itemize}[noitemsep, topsep=0pt, label=\textcolor{gray}{$\bullet$}]
+    \item بررسی قابلیت‌های کاربران و نقش‌های مختلف در سیستم
+    \item شناسایی و تحلیل تهدیدها و خطرات احتمالی
+\end{itemize}
+
+\membername{فعالیت مشترک (تیمی)}
+\begin{itemize}[noitemsep, topsep=0pt, label=\textcolor{myred}{$\diamond$}]
+    \item ایده‌پردازی و آزمودن راهکارهای مختلف به صورت دو نفره ( \lr {Pair Work} )
+\end{itemize}
+
